@@ -13,6 +13,7 @@
         "Z_Negative": "Leash_Z-",
         "X_Positive": "Leash_X+",
         "X_Negative": "Leash_X-",
-        "PhysboneParameter": "Leash"
+        "PhysboneParameter": "Leash",
+		"EnableOSCParameter" : "Leash_OSC"
     }
 }

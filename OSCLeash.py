@@ -27,7 +27,8 @@ DefaultConfig = {
         "Z_Negative": "Leash_Z-",
         "X_Positive": "Leash_X+",
         "X_Negative": "Leash_X-",
-        "PhysboneParameter" : "Leash"
+        "PhysboneParameter" : "Leash",
+        "EnableOSCParameter" : "Leash_OSC"
     }
 }
 
@@ -65,6 +66,7 @@ try:
     Logging = config["Logging"]
     Parameters = config["Parameters"]
     XboxJoystickMovement = config["XboxJoystickMovement"]
+    EnableOSCParameter = config["EnableOSCParameter"]
     cls()
     print("Successfully read config.")
 except Exception as e: 
@@ -86,7 +88,8 @@ except Exception as e:
         "Z_Negative": "Leash_Z-",
         "X_Positive": "Leash_X+",
         "X_Negative": "Leash_X-",
-        "PhysboneParameter": "Leash"
+        "PhysboneParameter": "Leash",
+        "EnableOSCParameter" : "Leash_OSC"
     }
 
 # Settings confirmation
@@ -114,6 +117,8 @@ class LeashParameters:
     Z_Negative: float = 0
     X_Positive: float = 0
     X_Negative: float = 0
+    Enable: bool = True
+    WasDisabled: bool = False
 
 leash = LeashParameters()
 
@@ -140,24 +145,39 @@ def OnReceiver_XNegative(address, value):
     leash.X_Negative = value
     statelock.release()
     
-def OnReceiver_IsGrabbed(address, value):
+def OnReceive_IsGrabbed(address, value):
     statelock.acquire()
     leash.LeashGrabbed = value
     statelock.release()
     
-def OnReceiver_Stretch(address, value):
+def OnReceive_Stretch(address, value):
     statelock.acquire()
     leash.LeashStretch = value
     statelock.release()
 
+def OnReceive_Enable(address, value):
+    statelock.acquire()
+    leash.Enabled = value
+    if value:
+        statelock.release()
+        LeashRun()
+        return
+    else:
+        leash.WasDisabled = True
+    statelock.release()
+
 # Paramaters to read
+#dispatcher.set_default_handler(OnRecieve) #This recieves everything, I think?
 dispatcher.map(f'/avatar/parameters/{Parameters["Z_Positive"]}',OnReceive_ZPositive) #Z Positive
 dispatcher.map(f'/avatar/parameters/{Parameters["Z_Negative"]}',OnReceiver_ZNegative) #Z Negative
 dispatcher.map(f'/avatar/parameters/{Parameters["X_Positive"]}',OnReceive_XPositive) #X Positive
 dispatcher.map(f'/avatar/parameters/{Parameters["X_Negative"]}',OnReceiver_XNegative) #X Negative
-dispatcher.map(f'/avatar/parameters/{Parameters["PhysboneParameter"]}_Stretch',OnReceiver_Stretch) #Physbone Stretch Value
-dispatcher.map(f'/avatar/parameters/{Parameters["PhysboneParameter"]}_IsGrabbed',OnReceiver_IsGrabbed) #Physbone Grab Status
-#dispatcher.set_default_handler(OnRecieve) #This recieves everything, I think?
+dispatcher.map(f'/avatar/parameters/{Parameters["PhysboneParameter"]}_Stretch',OnReceive_Stretch) #Physbone Stretch Value
+dispatcher.map(f'/avatar/parameters/{Parameters["PhysboneParameter"]}_IsGrabbed',OnReceive_IsGrabbed) #Physbone Grab Status
+if EnableOSCParameter is not None:
+    dispatcher.map(f'/avatar/parameters/{Parameters["EnableOSCParameter"]}',OnReceive_Enable) #Enable State
+else:
+    EnableOSCParameter = True
 
 # Set up UDP OSC client   
 oscClient = SimpleUDPClient(IP, SendingPort) 
@@ -173,21 +193,29 @@ def StartServer():
 # Run Leash
 def LeashRun():
     statelock.acquire()
+    if leash.Enable:
+        #Maths
+        VerticalOutput = (leash.Z_Positive-leash.Z_Negative) * leash.LeashStretch
+        HorizontalOutput = (leash.X_Positive-leash.X_Negative) * leash.LeashStretch
 
-    #Maths 
-    VerticalOutput = (leash.Z_Positive-leash.Z_Negative) * leash.LeashStretch
-    HorizontalOutput = (leash.X_Positive-leash.X_Negative) * leash.LeashStretch
+        #Read Grab state
+        LeashGrabbed = leash.LeashGrabbed
 
-    #Read Grab state
-    LeashGrabbed = leash.LeashGrabbed
+        if LeashGrabbed == True: #Leash is grabbed
+            leash.LeashWasGrabbed = True #Has been grabbed
 
-    if LeashGrabbed == True: #Leash is grabbed
-        leash.LeashWasGrabbed = True #Has been grabbed 
+        LeashReleased = leash.LeashGrabbed != leash.LeashWasGrabbed #Do Leash Grab states line up?
+        if LeashReleased == True: #Reset Leash grab state
+            leash.LeashWasGrabbed = False
+    else:
+        if leash.WasDisabled:
+            leash.WasDisabled = False
+            statelock.release()
+            LeashOutput(0.0,0.0,0)
+            return
+        statelock.release()
+        return
 
-    LeashReleased = leash.LeashGrabbed != leash.LeashWasGrabbed #Do Leash Grab states line up?
-    if LeashReleased == True: #Reset Leash grab state
-        leash.LeashWasGrabbed = False
-    
     statelock.release()
 
     if LeashGrabbed == True: #GrabCheck
